@@ -21,6 +21,8 @@ namespace GodsDev\AuthServicePhpClient;
  */
 class AuthServicePhpClient {
 
+    const ACCESS_TOKEN_PARAM_NAME = "at";
+
     private $authServiceUrl; //authService URL
     private $appId; //client application id, as appears in authService's allowed id list
     private $logger;
@@ -41,6 +43,37 @@ class AuthServicePhpClient {
 
         $this->logger->debug("AuthServiceClient CREATED");
     }
+
+    /**
+     * tries several ways to get user info
+     * (token cookie, access-token parameter)
+     * if unsuccessfull, user info cannot be obtained
+     *
+     * After a constructor, this is the only method client typically needs to use.
+     *
+     * @return array user info
+     *
+     * @throws \Exception
+     * @throws \GodsDev\AuthServicePhpClient\AuthServicePhpClientException
+     */
+    public function obtainUserInfo() {
+        $tokenId = null;
+        if (isset($_REQUEST[self::ACCESS_TOKEN_PARAM_NAME])) {
+            $accessTokenId = $_REQUEST[self::ACCESS_TOKEN_PARAM_NAME];
+            $token = $this->createTokenFromAccessTokenId($accessTokenId);
+            $tokenId = $token["id"];
+        }
+        if ($tokenId == null) {
+            $tokenId = $this->getTokenIdFromCookie();
+        }
+        if ($tokenId == null) {
+            throw new \GodsDev\AuthServicePhpClient\AuthServicePhpClientException("cannot obtain AuthService user info");
+        }
+
+        $userInfo = $this->getUserInfoFromTokenId($tokenId);
+        return $userInfo;
+    }
+
 
     /**
      *
@@ -69,7 +102,7 @@ class AuthServicePhpClient {
     }
 
 
-    private function getCookieName() {
+    public function getCookieName() {
         return "svct" . $this->appId;
     }
 
@@ -77,22 +110,36 @@ class AuthServicePhpClient {
         $this->headersArr[] = $name . ": " . $value;
     }
 
+
+    /**
+     *
+     *
+     * @param string $cookieName if null, uses a standard, appId-related name
+     *
+     * @return string tokenId
+     */
+    private function getTokenIdFromCookie($cookieName = null) {
+        if (!$cookieName) {
+            $cookieName = $this->getCookieName();
+        }
+        if (isset($_COOKIE[$cookieName])) {
+            $tokenId = $_COOKIE[$cookieName];
+            $this->logger->debug("getTokenFromCookie: Token cookie [$cookieName] found. Value: [" . $_COOKIE[$cookieName] . "]");
+        } else {
+            $this->logger->debug("getTokenFromCookie: Token cookie [$cookieName] not found.");
+            $tokenId = null;
+        }
+        return $tokenId;
+    }
+
+
     /**
      *
      * @param type $urlPart include leading slash
      * @return type
      */
-    private function getCurlCh($urlPart, $token = null) {
+    private function getCurlCh($urlPart, $tokenId = null) {
         $this->headersArr = array();
-        if (!$token) {
-            $tName = $this->getCookieName();
-            if (isset($_COOKIE[$tName])) {
-                $token = $_COOKIE[$tName];
-                $this->logger->debug("getCurlCh: Token cookie [$tName] found. Value: [" . $_COOKIE[$tName] . "]");
-            } else {
-                $this->logger->debug("getCurlCh: Token cookie [$tName] not found.");
-            }
-        }
         $curl = curl_init($this->authServiceUrl . $urlPart . "/" . $this->appId);
         //no response body is returned if uncommented
 //        curl_setopt($curl, CURLOPT_FAILONERROR, true);
@@ -100,8 +147,8 @@ class AuthServicePhpClient {
 //        //return the transfer as a string
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
         curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
-        if ($token) {
-            $this->addHeader("Cookie", $this->getCookieName() . "=" . $token);
+        if ($tokenId) {
+            $this->addHeader("Cookie", $this->getCookieName() . "=" . $tokenId);
         }
         $this->logger->debug("curl info=" . curl_getinfo($curl, CURLINFO_EFFECTIVE_URL));
         return $curl;
@@ -152,7 +199,7 @@ class AuthServicePhpClient {
         }
         if ($errDescr) {
             if ($isClientError) {
-                throw new AuthServiceClientException("AuthServiceClient: " . $errDescr);
+                throw new AuthServicePhpClientException("AuthServiceClient: " . $errDescr);
             } else {
                 throw new \Exception("AuthServiceClient: " . $errDescr);
             }
@@ -161,12 +208,15 @@ class AuthServicePhpClient {
 
     /**
      *
-     * @param string $token token id. If null, a token cookie (name: "svct" . $appId ) is used
+     * @param string $tokenId token id. If null, a token cookie (name: "svct" . $appId ) is used
      * @return array user info
      */
-    public function getUserInfo($token = null) {
-        $this->logger->debug("CALL getUserInfo with token: [$token]");
-        $ch = $this->getCurlCh("/user-info", $token);
+    public function getUserInfoFromTokenId($tokenId) {
+//        if ($tokenId == null) {
+//            $tokenId = $this->getTokenIdFromCookie();
+//        }
+        $this->logger->debug("CALL getUserInfoFromTokenId with token id: [$tokenId]");
+        $ch = $this->getCurlCh("/user-info", $tokenId);
         $output = $this->execCurl($ch);
 //        $this->logger->debug(print_r($output, true));
         $this->handleCurlEnd($ch, $output);
@@ -177,7 +227,7 @@ class AuthServicePhpClient {
     /**
      * makes a request for a new access-token
      *
-     * @param string $userId
+     * @param string $userId userId
      * @param string $tokenValidTo explicit token (not the access-token!) validTo (format: UTC unix time milliseconds). If null, token validTo will be computed at the time of token retrieval.
      * @return array access-token
      *
@@ -213,14 +263,15 @@ class AuthServicePhpClient {
      * @param string $accessTokenId
      * @return array token
      */
-    public function createTokenFromAccessToken($accessTokenId) {
+    public function createTokenFromAccessTokenId($accessTokenId) {
         $this->logger->debug("CALL getToken with $accessTokenId: [$accessTokenId]");
         $ch = $this->getCurlCh("/token");
         $this->addHeader("x-access-token", $accessTokenId);
         $output = $this->execCurl($ch);
 //        $this->logger->debug(print_r($output, true));
         $this->handleCurlEnd($ch, $output);
-        return json_decode($output, true);
+        $arr = json_decode($output, true);
+        return $arr["data"];
     }
 
     /**
@@ -247,20 +298,33 @@ class AuthServicePhpClient {
         $this->logger->debug("CALL getTokenFromUserId with userId: [$userId]");
         $accessTokenArr = $this->createAccessToken($userId);
 
-        $tokenArr = $this->createTokenFromAccessToken($accessTokenArr["data"]["id"]);
+        $tokenArr = $this->createTokenFromAccessTokenId($accessTokenArr["id"]);
         return $tokenArr;
     }
 
 
     /**
-     * sets a cookie from the token
+     * sets a cookie from the token id
      *
-     * @param array $token token
+     * @param string $tokenId token id value
      * @return setCookie status
      */
-    public function setTokenCookie(array $token) {
-        $expireDate = date("U",strtotime($token["data"]["attributes"]["valid-to"]));
-        return setcookie($this->getCookieName(), $token["data"]["id"], $expireDate, "/");
+
+    /**
+     * sets a cookie from the token id
+     *
+     * @param array $token token array
+     * @param string $path The path on the server in which the cookie will be available on. If set to '/', the cookie will be available within the entire domain
+     * @param string $domain The (sub)domain that the cookie is available to.
+     * @param boolean $secure Indicates that the cookie should only be transmitted over a secure HTTPS connection from the client.
+     * @param boolean $httponly When TRUE the cookie will be made accessible only through the HTTP protocol.
+     * @return boolean php setcookie status
+     *
+     * @see setcookie
+     */
+    public function setTokenCookie(array $token, $path = "", $domain = "", $secure = false, $httponly = true) {
+        $expireDate = date("U",strtotime($token["attributes"]["valid-to"]));
+        return setcookie($this->getCookieName(), $token["id"], $expireDate, $path, $domain, $secure, $httponly);
     }
 
 
@@ -352,7 +416,7 @@ class AuthServicePhpClient {
  *
  * throws an \Exception if system error arises (HTTP 50x, cannot connect...)
  */
-class AuthServiceClientException extends \Exception {
+class AuthServicePhpClientException extends \Exception {
     public function __construct($message = "", $code = 0, \Exception $previous = null) {
         parent::__construct($message, $code, $previous);
     }
