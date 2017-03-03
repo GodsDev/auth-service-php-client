@@ -61,6 +61,7 @@ class AuthServicePhpClient {
         if (isset($_REQUEST[self::ACCESS_TOKEN_PARAM_NAME])) {
             $accessTokenId = $_REQUEST[self::ACCESS_TOKEN_PARAM_NAME];
             $token = $this->createTokenFromAccessTokenId($accessTokenId);
+            $this->setTokenCookie($token, "/");
             $tokenId = $token["id"];
         }
         if ($tokenId == null) {

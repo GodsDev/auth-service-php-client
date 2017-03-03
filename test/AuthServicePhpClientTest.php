@@ -27,6 +27,12 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
         $this->asc = new AuthServicePhpClient("http://localhost:3500/auth", "AuthClientApp", \Logger::getLogger("AuthClientTest"));
     }
 
+    protected function tearDown() {
+        //ob_end_flush();
+        parent::tearDown();
+    }
+
+
     public function test_1st() {
         $this->assertEquals("AuthClientApp", $this->asc->getAppId());
     }
@@ -98,7 +104,10 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
         var_dump($userInfo2);
     }
 
-
+    //this directive allows phpunit to set headers without errors
+    /**
+     * @runInSeparateProcess
+     */
     public function test_obtainUserInfo_from_accessTokenId() {
         $existingUserInfo = $this->asc->findUserByKey("mail", $this->mail1);
         $accessToken = $this->asc->createAccessToken($existingUserInfo["id"]);
@@ -106,6 +115,14 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
         $_REQUEST[\GodsDev\AuthServicePhpClient\AuthServicePhpClient::ACCESS_TOKEN_PARAM_NAME] = $accessToken["id"];
 
         $userInfo3 = $this->asc->obtainUserInfo();
+
+        $headers = php_sapi_name() === 'cli' ? \xdebug_get_headers() : \headers_list();
+        echo "headers:";
+        var_dump($headers);
+
+        $this->assertStringStartsWith("Set-Cookie: svctAuthClientApp=", $headers[0]);
+
+        //$this->assertArrayHasKey($this->asc->getCookieName(), $_COOKIE);
         var_dump($userInfo3);
     }
 
