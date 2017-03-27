@@ -9,6 +9,7 @@
 namespace GodsDev\AuthServicePhpClient\Test;
 
 use GodsDev\AuthServicePhpClient\AuthServicePhpClient;
+use GodsDev\AuthServicePhpClient\AuthServicePhpClientCreator;
 
 /**
  * Description of PathTest
@@ -18,13 +19,17 @@ use GodsDev\AuthServicePhpClient\AuthServicePhpClient;
 class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
 
     protected $asc;
+    protected $ascC;
     protected $mail1 = "pepa@aaa.cz";
     protected $nonexistent_mail = "pepa@nonexistent.mail";
 
 
     protected function setUp()
     {
-        $this->asc = new AuthServicePhpClient("http://localhost:3500/auth", "AuthClientApp", \Logger::getLogger("AuthClientTest"));
+
+        $logger = new \Abacaphiliac\PsrLog4Php\LoggerWrapper(\Logger::getLogger("AuthClientTest"));
+        $this->asc = new AuthServicePhpClient("http://localhost:3500/auth", "AuthClientApp", $logger);
+        $this->ascC = new AuthServicePhpClientCreator($this->asc->getAuthServiceUrl(), $this->asc->getAppId(), $logger);
     }
 
     protected function tearDown() {
@@ -45,7 +50,7 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
 
 
     public function test_createUpdateUser() {
-        $data = $this->asc->createOrUpdateUser("mail", $this->mail1);
+        $data = $this->ascC->createOrUpdateUser("mail", $this->mail1);
         var_dump($data);
     }
 
@@ -57,14 +62,14 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
 
 
     public function test_modifyUserData() {
-        $data = $this->asc->createOrUpdateUser("mail", $this->mail1, "data", '{ "step" : "A"}');
+        $data = $this->ascC->createOrUpdateUser("mail", $this->mail1, "data", '{ "step" : "A"}');
         $this->assertArrayHasKey("data", $data);
         $this->assertEquals(array("step" => "A"), $data["data"]);
         var_dump($data);
     }
 
     public function test_modifyUserDataAgain() {
-        $data = $this->asc->createOrUpdateUser("mail", $this->mail1, "data", '"0012"');
+        $data = $this->ascC->createOrUpdateUser("mail", $this->mail1, "data", '"0012"');
         $this->assertArrayHasKey("data", $data);
         $this->assertEquals("0012", $data["data"]);
         var_dump($data);
@@ -76,7 +81,7 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
         //$tokenValidToTimestamp = strtotime($tokenValidToDate);
         $existingUserInfo = $this->asc->findUserByKey("mail", $this->mail1);
         var_dump($existingUserInfo);
-        $at = $this->asc->createAccessToken($existingUserInfo["id"]);
+        $at = $this->ascC->createAccessToken($existingUserInfo["id"]);
         var_dump($at);
         //$this->assertArrayHasKey("token-valid-to", $at["attributes"]);
         //$this->assertEquals($tokenValidToDate, $at["attributes"]["token-valid-to"]);
@@ -84,13 +89,13 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
 
     public function test_createToken() {
         $existingUserInfo = $this->asc->findUserByKey("mail", $this->mail1);
-        $t = $this->asc->createToken($existingUserInfo["id"]);
+        $t = $this->ascC->createTokenFromUserId($existingUserInfo["id"]);
         var_dump($t);
     }
 
     public function test_createTokenFromAccessToken() {
         $existingUserInfo = $this->asc->findUserByKey("mail", $this->mail1);
-        $at = $this->asc->createAccessToken($existingUserInfo["id"]);
+        $at = $this->ascC->createAccessToken($existingUserInfo["id"]);
         $t = $this->asc->createTokenFromAccessTokenId($at["id"]);
         var_dump($t);
     }
@@ -98,7 +103,7 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
 
     public function test_getUserInfoFromTokenId() {
         $existingUserInfo = $this->asc->findUserByKey("mail", $this->mail1);
-        $t = $this->asc->createToken($existingUserInfo["id"]);
+        $t = $this->ascC->createTokenFromUserId($existingUserInfo["id"]);
 
         $userInfo2 = $this->asc->getUserInfoFromTokenId($t["id"]);
         var_dump($userInfo2);
@@ -110,7 +115,7 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
      */
     public function test_obtainUserInfo_from_accessTokenId() {
         $existingUserInfo = $this->asc->findUserByKey("mail", $this->mail1);
-        $accessToken = $this->asc->createAccessToken($existingUserInfo["id"]);
+        $accessToken = $this->ascC->createAccessToken($existingUserInfo["id"]);
         //simulate request parameter
         $_REQUEST[\GodsDev\AuthServicePhpClient\AuthServicePhpClient::ACCESS_TOKEN_PARAM_NAME] = $accessToken["id"];
 
@@ -128,7 +133,7 @@ class AuthServicePhpClientTest extends \PHPUnit_Framework_TestCase {
 
     public function test_obtainUserInfo_from_cookie() {
         $existingUserInfo = $this->asc->findUserByKey("mail", $this->mail1);
-        $token = $this->asc->createToken($existingUserInfo["id"]);
+        $token = $this->ascC->createTokenFromUserId($existingUserInfo["id"]);
         //simulate cookie
         $_COOKIE[$this->asc->getCookieName()] = $token["id"];
 

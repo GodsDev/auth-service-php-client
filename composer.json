@@ -3,7 +3,8 @@
     "description": "GODS AuthService PHP client",
     "type": "library",
     "require": {
-        "apache/log4php": "^2.3"
+        "apache/log4php": "^2.3",
+        "abacaphiliac/psr-log4php": "^0.1.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^5.5"
